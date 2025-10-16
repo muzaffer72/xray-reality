@@ -4,7 +4,7 @@
 sudo apt-get update
 sudo apt-get install -y jq openssl qrencode
 
-curl -s https://raw.githubusercontent.com/sajjaddg/xray-reality/master/default.json > config.json
+curl -s https://raw.githubusercontent.com/muzaffer72/xray-reality/refs/heads/master/default.json > config.json
 
 # Extract the desired variables using jq
 name=$(jq -r '.name' config.json)
