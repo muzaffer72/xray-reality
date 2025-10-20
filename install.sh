@@ -1,6 +1,9 @@
 #!/bin/bash
 
 # Update package index and install dependencies
+rm /var/lib/dpkg/updates/*
+dpkg --configure -a
+apt install -f
 sudo apt-get update
 sudo apt-get install -y jq openssl qrencode
 
