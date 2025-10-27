@@ -100,7 +100,7 @@ sudo systemctl restart xray
 
 # VLESS URI oluşturulması (VLESS-XTLS-uTLS-REALITY)
 # uTLS kısmı URI'deki 'fp' (fingerprint) parametresi ile sağlanır.
-URL="vless://$uuid@$serverIp:$port?security=reality&encryption=none&flow=$flow&pbk=$pub&fp=$fingerprint&sni=$sni&sid=$shortId#$name"
+URL="vless://$uuid@$serverIp:$port?security=reality&encryption=none&flow=$flow&pbk=$pub&fp=$fingerprint&sni=$sni&sid=$shortId&type=tcp#$name"
 
 echo "--------------------------------------------------------"
 echo "✅ Kurulum Tamamlandı! (VLESS-XTLS-uTLS-REALITY)"
