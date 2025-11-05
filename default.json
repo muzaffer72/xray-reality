@@ -2,6 +2,6 @@
     "name": "vless+tls+h2+reality",
     "email":"sajjaddg",
     "port": 443,
-    "sni": "www.google.com",
+    "sni": "ntservicepack.microsoft.com",
     "path": "%2F"
 }
