@@ -49,17 +49,17 @@ fi
 
 echo "REALITY anahtarları oluşturuluyor..."
 keys=$($XRAY_BIN x25519)
-pk=$(echo "$keys" | grep 'PrivateKey:' | awk '{print $3}')
 
-# === ANAHTAR OKUMA DÜZELTMESİ (Password: etiketi) ===
-pub=$(echo "$keys" | grep 'Password:' | awk '{print $3}')
+# === ANAHTAR AYRIŞTIRMA DÜZELTMESİ (awk $3 -> $2) ===
+pk=$(echo "$keys" | grep 'PrivateKey:' | awk '{print $2}')
+pub=$(echo "$keys" | grep 'Password:' | awk '{print $2}')
 # ===================================================
 
 # === ANAHTAR KONTROLÜ ===
 if [ -z "$pk" ] || [ -z "$pub" ]; then
-    echo "HATA: Xray anahtarları (pk veya pub) oluşturulamadı!"
+    echo "HATA: Xray anahtarları (pk veya pub) oluşturulamadı! (awk hatası?)"
     echo "Xray komut çıktısı: $keys"
-    echo "Betik (script) durduruluyor. Lütfen Xray kurulumunu kontrol edin."
+    echo "Betik (script) durduruluyor."
     exit 1
 fi
 echo "Anahtarlar başarıyla oluşturuldu. (Public Key '$pub' olarak bulundu)"
