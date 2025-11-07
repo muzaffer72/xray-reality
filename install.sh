@@ -1,22 +1,22 @@
 #!/bin/bash
 
 # === KRİTİK DÜZELTME: Hata durumunda betiği durdur ===
+# (set -e, bir komut başarısız olursa betiği durdurur, bu iyi bir pratiktir)
 set -e
 # ====================================================
 
 # --- 0. BAŞLANGIÇ TEMİZLİĞİ ---
 echo "Eski Xray kurulumları temizleniyor..."
-apt purge xray -y
+# apt purge'ün hata verip betiği durdurmasını engellemek için '|| true' ekliyoruz
+apt purge xray -y || true
 # Önceki denemelerden kalmış olabilecek binary dosyasını manuel sil
 rm -f /usr/local/bin/xray
 
 # --- 1. SİSTEM GÜNCELLEME VE BAĞIMLILIKLAR ---
 echo "Sistem güncelleniyor ve gerekli araçlar kuruluyor..."
 apt-get update
-# === KRİTİK DÜZELTME: SSL/TLS SERTİFİKALARINI GÜNCELLEME ===
-# curl (28) SSL connection timeout hatasını çözmek için
+# SSL/TLS sertifikalarını güncelle (curl timeout hatası için)
 apt-get install -y ca-certificates
-# ==========================================================
 apt install -y jq openssl qrencode curl wget git ufw
 
 # --- 2. AYAR DOSYASINI İNDİRME VE TEMEL DEĞERLERİ TANIMLAMA ---
@@ -48,7 +48,7 @@ fingerprint="chrome"
 
 # --- 3. XRAY KURULUMU (OTOMATİK - GITHUB ÜZERİNDEN) ---
 echo "Xray çekirdeğinin EN SON SÜRÜMÜ GitHub'dan indiriliyor ve kuruluyor..."
-# (set -e sayesinde, bu komut başarısız olursa betik duracaktır)
+# (set -e sayesinde, bu curl komutu başarısız olursa betik duracaktır)
 bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
 
 XRAY_BIN="/usr/local/bin/xray"
