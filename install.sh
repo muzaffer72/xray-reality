@@ -8,7 +8,6 @@ apt install -f
 # --- 1. SİSTEM GÜNCELLEME VE BAĞIMLILIKLAR ---
 echo "Sistem güncelleniyor ve gerekli araçlar kuruluyor..."
 sudo apt-get update
-# ufw (firewall) paketini de ekliyoruz
 apt install -y jq openssl qrencode curl wget git ufw
 
 # --- 2. AYAR DOSYASINI İNDİRME VE TEMEL DEĞERLERİ TANIMLAMA ---
@@ -50,8 +49,22 @@ fi
 
 echo "REALITY anahtarları oluşturuluyor..."
 keys=$($XRAY_BIN x25519)
-pk=$(echo "$keys" | grep 'Private key:' | awk '{print $3}')
-pub=$(echo "$keys" | grep 'Public key:' | awk '{print $3}')
+pk=$(echo "$keys" | grep 'PrivateKey:' | awk '{print $3}')
+
+# === ANAHTAR OKUMA DÜZELTMESİ (Password: etiketi) ===
+pub=$(echo "$keys" | grep 'Password:' | awk '{print $3}')
+# ===================================================
+
+# === ANAHTAR KONTROLÜ ===
+if [ -z "$pk" ] || [ -z "$pub" ]; then
+    echo "HATA: Xray anahtarları (pk veya pub) oluşturulamadı!"
+    echo "Xray komut çıktısı: $keys"
+    echo "Betik (script) durduruluyor. Lütfen Xray kurulumunu kontrol edin."
+    exit 1
+fi
+echo "Anahtarlar başarıyla oluşturuldu. (Public Key '$pub' olarak bulundu)"
+# ============================================
+
 serverIp=$(curl -s4 https://api.ipify.org)
 uuid=$($XRAY_BIN uuid)
 shortId=$(openssl rand -hex 8)
@@ -71,21 +84,21 @@ NEW_JSON=$(echo "$JSON_CONFIG" | jq \
      .inbounds[0].settings.clients[0].email = $email |
      .inbounds[0].settings.clients[0].id = $uuid |
      .inbounds[0].settings.clients[0].flow = $flow |
-     .inbounds[0].streamSettings.realitySettings.dest = ($sni + ":433") |
+     .inbounds[0].streamSettings.realitySettings.dest = ($sni + ":443") |
      .inbounds[0].streamSettings.realitySettings.serverNames = [$sni, ("www." + $sni)] |
      .inbounds[0].streamSettings.realitySettings.privateKey = $pk |
      .inbounds[0].streamSettings.realitySettings.shortIds = [$shortId]')
 
 echo "$NEW_JSON" | sudo tee /usr/local/etc/xray/config.json >/dev/null
 
-# === YENİ EKLENEN BÖLÜM: GÜVENLİK DUVARI (FIREWALL) AYARLARI ===
+# === GÜVENLİK DUVARI (FIREWALL) AYARLARI ===
 echo "Güvenlik duvarı (UFW) ayarlanıyor..."
-ufw allow ssh # SSH'a izin ver (BAĞLANTI KESİLMEMESİ İÇİN KRİTİK)
-ufw allow $port/tcp # Xray portuna izin ver
-ufw --force enable # Güvenlik duvarını etkinleştir
-ufw reload # Ayarları yeniden yükle
+ufw allow ssh
+ufw allow $port/tcp
+ufw --force enable
+ufw reload
 echo "Güvenlik duvarı $port portuna izin verecek şekilde ayarlandı."
-# ==============================================================
+# ==============================================
 
 # --- 5. XRAY'İ BAŞLATMA VE BAĞLANTI DİZESİNİ OLUŞTURMA ---
 echo "Xray hizmeti yeniden başlatılıyor..."
