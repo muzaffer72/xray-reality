@@ -42,7 +42,7 @@ email=$(echo "$JSON_CONFIG" | jq -r '.email // "user@example.com"')
 port=$(( RANDOM + 30000 ))
 echo "Rastgele Yüksek Port Atandı: $port"
 
-sni=$(echo "$JSON_CONFIG" | jq -r '.sni // "www.googletagmanager.com"')
+sni=$(echo "$JSON_CONFIG" | jq -r '.sni // "dl.google.com"')
 flow="xtls-rprx-vision"
 fingerprint="chrome"
 
