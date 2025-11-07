@@ -1,13 +1,22 @@
 #!/bin/bash
 
-# Gerekli güncellemeler ve araçlar
-rm /var/lib/dpkg/updates/*
-dpkg --configure -a
-apt install -f
+# === KRİTİK DÜZELTME: Hata durumunda betiği durdur ===
+set -e
+# ====================================================
+
+# --- 0. BAŞLANGIÇ TEMİZLİĞİ ---
+echo "Eski Xray kurulumları temizleniyor..."
+apt purge xray -y
+# Önceki denemelerden kalmış olabilecek binary dosyasını manuel sil
+rm -f /usr/local/bin/xray
 
 # --- 1. SİSTEM GÜNCELLEME VE BAĞIMLILIKLAR ---
 echo "Sistem güncelleniyor ve gerekli araçlar kuruluyor..."
-sudo apt-get update
+apt-get update
+# === KRİTİK DÜZELTME: SSL/TLS SERTİFİKALARINI GÜNCELLEME ===
+# curl (28) SSL connection timeout hatasını çözmek için
+apt-get install -y ca-certificates
+# ==========================================================
 apt install -y jq openssl qrencode curl wget git ufw
 
 # --- 2. AYAR DOSYASINI İNDİRME VE TEMEL DEĞERLERİ TANIMLAMA ---
@@ -39,6 +48,7 @@ fingerprint="chrome"
 
 # --- 3. XRAY KURULUMU (OTOMATİK - GITHUB ÜZERİNDEN) ---
 echo "Xray çekirdeğinin EN SON SÜRÜMÜ GitHub'dan indiriliyor ve kuruluyor..."
+# (set -e sayesinde, bu komut başarısız olursa betik duracaktır)
 bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
 
 XRAY_BIN="/usr/local/bin/xray"
@@ -50,7 +60,7 @@ fi
 echo "REALITY anahtarları oluşturuluyor..."
 keys=$($XRAY_BIN x25519)
 
-# === ANAHTAR AYRIŞTIRMA DÜZELTMESİ (awk $3 -> $2) ===
+# === ANAHTAR AYRIŞTIRMA DÜZELTMESİ (awk $2) ===
 pk=$(echo "$keys" | grep 'PrivateKey:' | awk '{print $2}')
 pub=$(echo "$keys" | grep 'Password:' | awk '{print $2}')
 # ===================================================
