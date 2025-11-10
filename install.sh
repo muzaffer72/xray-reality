@@ -1,17 +1,21 @@
 #!/bin/bash
 
 # === KRİTİK DÜZELTME: Hata durumunda betiği durdur ===
+# (set -e, bir komut başarısız olursa betiği durdurur, bu iyi bir pratiktir)
 set -e
 # ====================================================
 
 # --- 0. BAŞLANGIÇ TEMİZLİĞİ ---
 echo "Eski Xray kurulumları temizleniyor..."
+# apt purge'ün hata verip betiği durdurmasını engellemek için '|| true' ekliyoruz
 apt purge xray -y || true
+# Önceki denemelerden kalmış olabilecek binary dosyasını manuel sil
 rm -f /usr/local/bin/xray
 
 # --- 1. SİSTEM GÜNCELLEME VE BAĞIMLILIKLAR ---
 echo "Sistem güncelleniyor ve gerekli araçlar kuruluyor..."
 apt-get update
+# SSL/TLS sertifikalarını güncelle (curl timeout hatası için)
 apt-get install -y ca-certificates
 apt install -y jq openssl qrencode curl wget git ufw
 
@@ -33,16 +37,18 @@ fi
 
 name=$(echo "$JSON_CONFIG" | jq -r '.name // "Reality_Vision_uTLS_VPN"')
 email=$(echo "$JSON_CONFIG" | jq -r '.email // "user@example.com"')
+
+# === KRİTİK İYİLEŞTİRME 1: RASTGELE YÜKSEK PORT ===
 port=$(( RANDOM + 30000 ))
 echo "Rastgele Yüksek Port Atandı: $port"
 
 sni=$(echo "$JSON_CONFIG" | jq -r '.sni // "dl.google.com"')
 flow="xtls-rprx-vision"
 fingerprint="chrome"
-spx="/" 
 
 # --- 3. XRAY KURULUMU (OTOMATİK - GITHUB ÜZERİNDEN) ---
 echo "Xray çekirdeğinin EN SON SÜRÜMÜ GitHub'dan indiriliyor ve kuruluyor..."
+# (set -e sayesinde, bu curl komutu başarısız olursa betik duracaktır)
 bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
 
 XRAY_BIN="/usr/local/bin/xray"
@@ -53,29 +59,25 @@ fi
 
 echo "REALITY anahtarları oluşturuluyor..."
 keys=$($XRAY_BIN x25519)
+
+# === ANAHTAR AYRIŞTIRMA DÜZELTMESİ (awk $2) ===
 pk=$(echo "$keys" | grep 'PrivateKey:' | awk '{print $2}')
 pub=$(echo "$keys" | grep 'Password:' | awk '{print $2}')
+# ===================================================
 
+# === ANAHTAR KONTROLÜ ===
 if [ -z "$pk" ] || [ -z "$pub" ]; then
-    echo "HATA: Xray anahtarları (pk veya pub) oluşturulamadı!"
+    echo "HATA: Xray anahtarları (pk veya pub) oluşturulamadı! (awk hatası?)"
+    echo "Xray komut çıktısı: $keys"
     echo "Betik (script) durduruluyor."
     exit 1
 fi
+echo "Anahtarlar başarıyla oluşturuldu. (Public Key '$pub' olarak bulundu)"
+# ============================================
 
 serverIp=$(curl -s4 https://api.ipify.org)
 uuid=$($XRAY_BIN uuid)
 shortId=$(openssl rand -hex 8)
-
-# ====================================================================
-# YENİ EKLENDİ: Her sunucu için DİNAMİK OLARAK OLUŞTURULAN, 
-# ancak o sunucu için SABİT olan bir pqv kodu (URL-safe)
-#
-# Bu, sizin 60 GB'lık sunucunuzun yöntemini kopyalar,
-# ancak her sunucuya farklı bir imza verir.
-echo "DPI engellemesini aşmak için sunucuya özel 'pqv' imzası oluşturuluyor..."
-# (openssl 768 bayt rastgele veri üretir, URL-safe base64'e çevirir)
-PQV_STRING=$(openssl rand -base64 768 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
-# ====================================================================
 
 # --- 4. JSON YAPILANDIRMASINI GÜNCELLEME ---
 echo "Xray yapılandırma dosyası güncelleniyor..."
@@ -88,16 +90,14 @@ NEW_JSON=$(echo "$JSON_CONFIG" | jq \
     --arg email "$email" \
     --arg shortId "$shortId" \
     --arg flow "$flow" \
-    --arg spx "$spx" \
     '.inbounds[0].port = ($port | tonumber) |
-     .inbuonds[0].settings.clients[0].email = $email |
+     .inbounds[0].settings.clients[0].email = $email |
      .inbounds[0].settings.clients[0].id = $uuid |
      .inbounds[0].settings.clients[0].flow = $flow |
      .inbounds[0].streamSettings.realitySettings.dest = ($sni + ":443") |
      .inbounds[0].streamSettings.realitySettings.serverNames = [$sni, ("www." + $sni)] |
      .inbounds[0].streamSettings.realitySettings.privateKey = $pk |
-     .inbounds[0].streamSettings.realitySettings.shortIds = [$shortId] |
-     .inbounds[0].streamSettings.realitySettings.spx = $spx')
+     .inbounds[0].streamSettings.realitySettings.shortIds = [$shortId]')
 
 echo "$NEW_JSON" | sudo tee /usr/local/etc/xray/config.json >/dev/null
 
@@ -108,12 +108,13 @@ ufw allow $port/tcp
 ufw --force enable
 ufw reload
 echo "Güvenlik duvarı $port portuna izin verecek şekilde ayarlandı."
+# ==============================================
 
 # --- 5. XRAY'İ BAŞLATMA VE BAĞLANTI DİZESİNİ OLUŞTURMA ---
 echo "Xray hizmeti yeniden başlatılıyor..."
-systemctl daemon-reload
-systemctl enable xray
-systemctl restart xray
+sudo systemctl daemon-reload
+sudo systemctl enable xray
+sudo systemctl restart xray
 
 if systemctl is-active --quiet xray; then
     echo "✅ Xray servisi başarıyla başlatıldı."
@@ -122,14 +123,12 @@ else
     exit 1
 fi
 
-# GÜNCELLENMİŞ URL (Dinamik oluşturulan &pqv=... ile):
-URL="vless://$uuid@$serverIp:$port?security=reality&encryption=none&flow=$flow&pbk=$pub&fp=$fingerprint&sni=$sni&sid=$shortId&spx=%2F&type=tcp&pqv=$PQV_STRING#$name"
-
+URL="vless://$uuid@$serverIp:$port?security=reality&encryption=none&flow=$flow&pbk=$pub&fp=$fingerprint&sni=$sni&sid=$shortId&type=tcp#$name"
 
 echo "--------------------------------------------------------"
-echo "✅ Kurulum Tamamlandı! (Sunucuya Özel 'pqv' İmzası Aktif)"
+echo "✅ Kurulum Tamamlandı! (En Güncel Xray - Yüksek Port - Firewall Aktif)"
 echo "--------------------------------GEREKLİ BİLGİLER-----------------"
-echo "🔗 VLESS REALITY Bağlanti URL'si:"
+echo "🔗 VLESS REALITY Bağlantı URL'si:"
 echo "$URL"
 echo "--------------------------------------------------------"
 echo "QR Kod:"
