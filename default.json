@@ -1,7 +1,10 @@
 {
     "name": "vless+tls+h2+reality",
-    "email":"sajjaddg",
+    "email": "sajjaddg",
     "port": 443,
-    "sni": "horjun.tm",
+    "sni": [
+        "horjun.tm",
+        "music.st.com.tm"
+    ],
     "path": "%2F"
 }
