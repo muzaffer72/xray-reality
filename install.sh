@@ -38,9 +38,17 @@ fi
 name=$(echo "$JSON_CONFIG" | jq -r '.name // "Reality_Vision_uTLS_VPN"')
 email=$(echo "$JSON_CONFIG" | jq -r '.email // "user@example.com"')
 
-# === KRİTİK İYİLEŞTİRME 1: RASTGELE YÜKSEK PORT ===
-port=$(( RANDOM + 30000 ))
-echo "Rastgele Yüksek Port Atandı: $port"
+# === DEĞİŞİKLİK: PORT JSON'DAN ALINIYOR ===
+# Rastgele port ataması kaldırıldı. Port doğrudan JSON'dan okunuyor.
+port=$(echo "$JSON_CONFIG" | jq -r '.inbounds[0].port')
+
+# Portun JSON'dan doğru okunduğunu kontrol et
+if [ -z "$port" ] || [ "$port" == "null" ]; then
+    echo "UYARI: JSON'dan port okunamadı, varsayılan 443 kullanılıyor."
+    port=443
+fi
+echo "JSON'dan Alınan Port Atandı: $port"
+# ===========================================
 
 sni=$(echo "$JSON_CONFIG" | jq -r '.sni // "dl.google.com"')
 flow="xtls-rprx-vision"
@@ -126,7 +134,7 @@ fi
 URL="vless://$uuid@$serverIp:$port?security=reality&encryption=none&flow=$flow&pbk=$pub&fp=$fingerprint&sni=$sni&sid=$shortId&type=tcp#$name"
 
 echo "--------------------------------------------------------"
-echo "✅ Kurulum Tamamlandı! (En Güncel Xray - Yüksek Port - Firewall Aktif)"
+echo "✅ Kurulum Tamamlandı! (En Güncel Xray - JSON Portu - Firewall Aktif)"
 echo "--------------------------------GEREKLİ BİLGİLER-----------------"
 echo "🔗 VLESS REALITY Bağlantı URL'si:"
 echo "$URL"
