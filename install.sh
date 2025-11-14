@@ -1,30 +1,39 @@
 #!/bin/bash
 
 # === KRİTİK DÜZELTME: Hata durumunda betiği durdur ===
-# (set -e, bir komut başarısız olursa betiği durdurur, bu iyi bir pratiktir)
 set -e
 # ====================================================
 
+# --- !!! KULLANICI AYARLARI: VERİTABANI BİLGİLERİ !!! ---
+DB_HOST="109.71.252.34"
+DB_USER="onvao_vpnkurulum"
+DB_PASS="005434677197"
+DB_NAME="onvao_vpnkurulum"
+# =======================================================
+
+
 # --- 0. BAŞLANGIÇ TEMİZLİĞİ ---
 echo "Eski Xray kurulumları temizleniyor..."
-# apt purge'ün hata verip betiği durdurmasını engellemek için '|| true' ekliyoruz
-apt purge xray -y || true
-# Önceki denemelerden kalmış olabilecek binary dosyasını manuel sil
+(apt purge xray -y || true) >/dev/null 2>&1
 rm -f /usr/local/bin/xray
 
 # --- 1. SİSTEM GÜNCELLEME VE BAĞIMLILIKLAR ---
 echo "Sistem güncelleniyor ve gerekli araçlar kuruluyor..."
 apt-get update
-# SSL/TLS sertifikalarını güncelle (curl timeout hatası için)
 apt-get install -y ca-certificates
-apt install -y jq openssl qrencode curl wget git ufw
+apt install -y jq openssl qrencode curl wget git ufw mysql-client
 
 # --- 2. AYAR DOSYASINI İNDİRME VE TEMEL DEĞERLERİ TANIMLAMA ---
-CONFIG_URL="https://raw.githubusercontent.com/muzaffer72/xray-reality/refs/heads/master/config.json"
-JSON_CONFIG=$(curl -sL "$CONFIG_URL")
+TEMPLATE_CONFIG_URL="https://raw.githubusercontent.com/muzaffer72/xray-reality/refs/heads/master/config.json"
+SETTINGS_URL="https://raw.githubusercontent.com/muzaffer72/xray-reality/refs/heads/master/default.json"
+CURL_TIMEOUT=15
 
+echo "Xray TEMPLATE yapılandırması ($TEMPLATE_CONFIG_URL) indiriliyor..."
+JSON_CONFIG=$(curl -sL --max-time $CURL_TIMEOUT "$TEMPLATE_CONFIG_URL")
+
+# [Hata kontrolü ve varsayılan JSON şablonu...]
 if [ $? -ne 0 ] || [ -z "$JSON_CONFIG" ]; then
-    echo "UYARI: Harici config.json çekilemedi. Betik içi varsayılanlar kullanılıyor."
+    echo "UYARI: Harici config.json (şablon) çekilemedi. Betik içi varsayılan şablon kullanılıyor."
     JSON_CONFIG='{
         "inbounds": [{
             "listen": "0.0.0.0", "port": 443, "protocol": "vless",
@@ -35,29 +44,57 @@ if [ $? -ne 0 ] || [ -z "$JSON_CONFIG" ]; then
     }'
 fi
 
-name=$(echo "$JSON_CONFIG" | jq -r '.name // "Reality_Vision_uTLS_VPN"')
-email=$(echo "$JSON_CONFIG" | jq -r '.email // "user@example.com"')
+echo "ÖZEL AYARLAR ($SETTINGS_URL) indiriliyor..."
+JSON_SETTINGS=$(curl -sL --max-time $CURL_TIMEOUT "$SETTINGS_URL")
 
-# === DEĞİŞİKLİK: PORT JSON'DAN ALINIYOR ===
-# Rastgele port ataması kaldırıldı. Port doğrudan JSON'dan okunuyor.
-port=$(echo "$JSON_CONFIG" | jq -r '.inbounds[0].port')
-
-# Portun JSON'dan doğru okunduğunu kontrol et
-if [ -z "$port" ] || [ "$port" == "null" ]; then
-    echo "UYARI: JSON'dan port okunamadı, varsayılan 443 kullanılıyor."
-    port=443
+if [ $? -ne 0 ] || [ -z "$JSON_SETTINGS" ]; then
+    echo "UYARI: Harici default.json (özel ayarlar) çekilemedi veya boş. Varsayılan değerler kullanılacak."
+    JSON_SETTINGS="{}" 
 fi
-echo "JSON'dan Alınan Port Atandı: $port"
-# ===========================================
 
-sni=$(echo "$JSON_CONFIG" | jq -r '.sni // "dl.google.com"')
+# Ayarları Çekme
+name=$(echo "$JSON_SETTINGS" | jq -r '.name // "Reality_Vision_uTLS_VPN"')
+email=$(echo "$JSON_SETTINGS" | jq -r '.email // "user@example.com"')
+port_setting=$(echo "$JSON_SETTINGS" | jq -r '.port // "null"')
+
+if [ "$port_setting" != "null" ] && [ ! -z "$port_setting" ]; then
+    port=$port_setting
+    echo "Özel Ayar Portu (default.json) bulundu: $port"
+else
+    port=$(echo "$JSON_CONFIG" | jq -r '.inbounds[0].port')
+    if [ -z "$port" ] || [ "$port" == "null" ]; then
+        echo "UYARI: default.json ve config.json'da port okunamadı, varsayılan 443 kullanılıyor."
+        port=443
+    else
+        echo "Şablon Portu (config.json) kullanılıyor: $port"
+    fi
+fi
+
+# Rastgele SNI Seçimi
+sni_setting=$(echo "$JSON_SETTINGS" | jq '.sni')
+if [ -z "$sni_setting" ] || [ "$sni_setting" == "null" ]; then
+    echo "UYARI: default.json'da SNI bulunamadı. Varsayılan 'dl.google.com' kullanılıyor."
+    sni="dl.google.com"
+elif [[ $(echo "$sni_setting" | jq -r 'type') == "array" ]]; then
+    echo "SNI dizisi algılandı. Rastgele bir tane seçiliyor..."
+    sni=$(echo "$sni_setting" | jq -r '.[]' | shuf -n 1)
+    if [ -z "$sni" ]; then 
+        echo "UYARI: SNI dizisi boş. Varsayılan 'dl.google.com' kullanılıyor."
+        sni="dl.google.com"
+    else
+        echo "Rastgele Seçilen SNI: $sni"
+    fi
+else
+    sni=$(echo "$sni_setting" | jq -r '.')
+    echo "Tekli SNI (default.json) algılandı: $sni"
+fi
+
 flow="xtls-rprx-vision"
 fingerprint="chrome"
 
-# --- 3. XRAY KURULUMU (OTOMATİK - GITHUB ÜZERİNDEN) ---
+# --- 3. XRAY KURULUMU ---
 echo "Xray çekirdeğinin EN SON SÜRÜMÜ GitHub'dan indiriliyor ve kuruluyor..."
-# (set -e sayesinde, bu curl komutu başarısız olursa betik duracaktır)
-bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+bash -c "$(curl -L --max-time 300 https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
 
 XRAY_BIN="/usr/local/bin/xray"
 if [ ! -f "$XRAY_BIN" ]; then
@@ -67,29 +104,31 @@ fi
 
 echo "REALITY anahtarları oluşturuluyor..."
 keys=$($XRAY_BIN x25519)
-
-# === ANAHTAR AYRIŞTIRMA DÜZELTMESİ (awk $2) ===
 pk=$(echo "$keys" | grep 'PrivateKey:' | awk '{print $2}')
 pub=$(echo "$keys" | grep 'Password:' | awk '{print $2}')
-# ===================================================
 
-# === ANAHTAR KONTROLÜ ===
 if [ -z "$pk" ] || [ -z "$pub" ]; then
-    echo "HATA: Xray anahtarları (pk veya pub) oluşturulamadı! (awk hatası?)"
-    echo "Xray komut çıktısı: $keys"
-    echo "Betik (script) durduruluyor."
+    echo "HATA: Xray anahtarları (pk veya pub) oluşturulamadı!"
     exit 1
 fi
-echo "Anahtarlar başarıyla oluşturuldu. (Public Key '$pub' olarak bulundu)"
-# ============================================
+echo "Anahtarlar başarıyla oluşturuldu."
 
 serverIp=$(curl -s4 https://api.ipify.org)
 uuid=$($XRAY_BIN uuid)
 shortId=$(openssl rand -hex 8)
 
+# SUNUCU KONUM BİLGİSİ ALMA
+echo "Sunucu konum (ülke kodu) bilgisi alınıyor..."
+countryCode=$(curl -sL "http://ip-api.com/json/$serverIp?fields=countryCode" | jq -r '.countryCode')
+if [ -z "$countryCode" ] || [ "$countryCode" == "null" ]; then
+    echo "UYARI: Ülke kodu alınamadı. 'XX' olarak ayarlandı."
+    countryCode="XX"
+fi
+dbLocationTag="${countryCode}-${serverIp}"
+echo "Konum Etiketi (server_name) oluşturuldu: $dbLocationTag"
+
 # --- 4. JSON YAPILANDIRMASINI GÜNCELLEME ---
 echo "Xray yapılandırma dosyası güncelleniyor..."
-
 NEW_JSON=$(echo "$JSON_CONFIG" | jq \
     --arg pk "$pk" \
     --arg uuid "$uuid" \
@@ -109,14 +148,42 @@ NEW_JSON=$(echo "$JSON_CONFIG" | jq \
 
 echo "$NEW_JSON" | sudo tee /usr/local/etc/xray/config.json >/dev/null
 
-# === GÜVENLİK DUVARI (FIREWALL) AYARLARI ===
+# --- 4.5. YENİ: SSH PORT DEĞİŞİKLİĞİ ---
+# UYARI: Bu işlemden sonra sunucuya 22 yerine 7221 portundan bağlanmanız gerekecek!
+echo "SSH portu /etc/ssh/sshd_config dosyasında 7221 olarak ayarlanıyor..."
+# Port 22 veya #Port 22 yazan satırı bul ve Port 7221 olarak değiştir
+sed -i 's/^#?Port 22/Port 7221/' /etc/ssh/sshd_config
+
+# Servisi yeniden başlat
+echo "SSH servisi yeni port (7221) için yeniden başlatılıyor..."
+systemctl restart ssh
+echo "SSH servisi yeniden başlatıldı (artık 7221 portunu dinliyor olmalı)."
+# ==================================
+
+# === GÜVENLİK DUVARI (FIREWALL) AYARLARI (GÜÇLENDİRİLMİŞ) ===
 echo "Güvenlik duvarı (UFW) ayarlanıyor..."
-ufw allow ssh
+
+# 1. Varsayılan olarak TÜM gelen trafiği engelle (Port 80 dahil)
+ufw default deny incoming
+# 2. Giden trafiğe izin ver
+ufw default allow outgoing
+
+# 3. Sadece İKİ porta izin ver:
+echo "UFW: Port 7221 (Yeni SSH) için izin ayarlanıyor..."
+ufw allow 7221/tcp
+echo "UFW: Port $port (Xray) için izin ayarlanıyor..."
 ufw allow $port/tcp
+
+# 4. Eski SSH portunu (22) temizle (Hata vermemesi için '|| true' eklendi)
+ufw delete allow ssh || true
+ufw delete allow 22/tcp || true
+
+# 5. UFW'yi etkinleştir ve kuralları uygula
+echo "UFW etkinleştiriliyor ve kurallar uygulanıyor..."
 ufw --force enable
 ufw reload
-echo "Güvenlik duvarı $port portuna izin verecek şekilde ayarlandı."
-# ==============================================
+echo "✅ Güvenlik duvarı SIKILAŞTIRILDI: Sadece $port/tcp ve 7221/tcp portlarına izin verildi."
+# =========================================================
 
 # --- 5. XRAY'İ BAŞLATMA VE BAĞLANTI DİZESİNİ OLUŞTURMA ---
 echo "Xray hizmeti yeniden başlatılıyor..."
@@ -133,10 +200,21 @@ fi
 
 URL="vless://$uuid@$serverIp:$port?security=reality&encryption=none&flow=$flow&pbk=$pub&fp=$fingerprint&sni=$sni&sid=$shortId&type=tcp#$name"
 
+# === VERİTABANINA KAYIT (server_pool) ===
 echo "--------------------------------------------------------"
-echo "✅ Kurulum Tamamlandı! (En Güncel Xray - JSON Portu - Firewall Aktif)"
+echo "Sonuçlar veritabanına ('$DB_NAME') kaydediliyor..."
+(mysql -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -e "INSERT INTO server_pool (server_url, server_name, is_active, order_index, include_in_main_app, subscription_id, category) VALUES ('$URL', '$dbLocationTag', 1, 0, 0, NULL, 2);" && \
+echo "✅ Veritabanı kaydı başarılı.") || \
+echo "❌ UYARI: Veritabanına kayıt yapılamadı. (Bağlantı/SQL Hatası)"
+# ========================================================
+
+
+echo "--------------------------------------------------------"
+echo "✅ Kurulum Tamamlandı! (SSH Port: 7221, Güvenlik Duvarı Aktif)"
+echo "-------------------YENİ BAĞLANTI BİLGİLERİ----------------"
+echo "UYARI: Sunucu SSH Portunuz 7221 olarak değişti!"
 echo "--------------------------------GEREKLİ BİLGİLER-----------------"
-echo "🔗 VLESS REALITY Bağlantı URL'si:"
+echo "🔗 VLESS REALITY Bağlantı URL'si (Veritabanına da eklendi):"
 echo "$URL"
 echo "--------------------------------------------------------"
 echo "QR Kod:"
