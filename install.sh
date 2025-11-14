@@ -198,7 +198,7 @@ else
     exit 1
 fi
 
-URL="vless://$uuid@$serverIp:$port?security=reality&encryption=none&flow=$flow&pbk=$pub&fp=$fingerprint&sni=$sni&sid=$shortId&type=tcp#$name"
+URL="vless://$uuid@$serverIp:$port?security=reality&encryption=none&flow=$flow&pbk=$pub&fp=$fingerprint&sni=$sni&sid=$shortId&type=tcp#$dbLocationTag"
 
 # === VERİTABANINA KAYIT (server_pool) ===
 echo "--------------------------------------------------------"
