@@ -148,7 +148,35 @@ NEW_JSON=$(echo "$JSON_CONFIG" | jq \
 
 echo "$NEW_JSON" | sudo tee /usr/local/etc/xray/config.json >/dev/null
 
-# --- 4.5. YENİ: SSH PORT DEĞİŞİKLİĞİ ---
+# --- 4.5. XRAY LOG KLASÖRÜ VE LOGROTATE AYARI ---
+echo "Xray log klasörü oluşturuluyor..."
+sudo mkdir -p /var/log/xray
+sudo chmod 755 /var/log/xray
+sudo chown nobody:nogroup /var/log/xray
+
+# Logrotate ayarı (7 günlük rotasyon, disk dolmasını önler)
+echo "Logrotate ayarı yapılandırılıyor..."
+sudo tee /etc/logrotate.d/xray >/dev/null <<'EOF'
+/var/log/xray/*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 nobody nogroup
+    postrotate
+        systemctl reload xray > /dev/null 2>&1 || true
+    endscript
+}
+EOF
+
+echo "Xray log sistemi başarıyla yapılandırıldı!"
+echo "  - Access log: /var/log/xray/access.log"
+echo "  - Error log: /var/log/xray/error.log"
+echo "  - Rotasyon: 7 gün, gzip sıkıştırma"
+
+# --- 4.6. YENİ: SSH PORT DEĞİŞİKLİĞİ ---
 # UYARI: Bu işlemden sonra sunucuya 22 yerine 7221 portundan bağlanmanız gerekecek!
 echo "SSH portu /etc/ssh/sshd_config dosyasında 7221 olarak ayarlanıyor..."
 # Port 22 veya #Port 22 yazan satırı bul ve Port 7221 olarak değiştir
