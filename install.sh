@@ -24,16 +24,94 @@ apt-get install -y ca-certificates
 apt install -y jq openssl qrencode curl wget git ufw mysql-client
 
 # --- 2. AYAR DOSYASINI İNDİRME VE TEMEL DEĞERLERİ TANIMLAMA ---
-TEMPLATE_CONFIG_URL="https://raw.githubusercontent.com/muzaffer72/xray-reality/refs/heads/master/config.json"
-SETTINGS_URL="https://raw.githubusercontent.com/muzaffer72/xray-reality/refs/heads/master/default.json"
+# Öncelik sırası: 1. GitHub, 2. Yedek site
+GITHUB_CONFIG_URL="https://raw.githubusercontent.com/muzaffer72/xray-reality/refs/heads/master/config.json"
+BACKUP_CONFIG_URL="https://yeni.onvao.net/script/xrayreality/config.json"
+GITHUB_SETTINGS_URL="https://raw.githubusercontent.com/muzaffer72/xray-reality/refs/heads/master/default.json"
+BACKUP_SETTINGS_URL="https://yeni.onvao.net/script/xrayreality/default.json"
 CURL_TIMEOUT=15
 
-echo "Xray TEMPLATE yapılandırması ($TEMPLATE_CONFIG_URL) indiriliyor..."
-JSON_CONFIG=$(curl -sL --max-time $CURL_TIMEOUT "$TEMPLATE_CONFIG_URL")
+echo "Xray TEMPLATE yapılandırması indiriliyor..."
+echo "  1. Öncelik: GitHub ($GITHUB_CONFIG_URL)"
+set +e  # Geçici olarak hata durumunda durdurmayı kapat
+JSON_CONFIG=$(curl -sL --max-time $CURL_TIMEOUT "$GITHUB_CONFIG_URL")
+CURL_EXIT=$?
+set -e  # Tekrar aktifleştir
 
-# [Hata kontrolü ve varsayılan JSON şablonu...]
-if [ $? -ne 0 ] || [ -z "$JSON_CONFIG" ]; then
-    echo "UYARI: Harici config.json (şablon) çekilemedi. Betik içi varsayılan şablon kullanılıyor."
+# GitHub başarısız olursa yedek siteyi dene
+if [ $CURL_EXIT -ne 0 ] || [ -z "$JSON_CONFIG" ]; then
+    echo "  ⚠️  GitHub indirme başarısız. Yedek site deneniyor: $BACKUP_CONFIG_URL"
+    set +e
+    JSON_CONFIG=$(curl -sL --max-time $CURL_TIMEOUT "$BACKUP_CONFIG_URL")
+    CURL_EXIT=$?
+    set -e
+
+    if [ $CURL_EXIT -ne 0 ] || [ -z "$JSON_CONFIG" ]; then
+        echo "  ❌ Yedek site de başarısız. Betik içi varsayılan şablon kullanılıyor."
+        JSON_CONFIG='{
+            "inbounds": [{
+                "listen": "0.0.0.0", "port": 443, "protocol": "vless",
+                "settings": { "clients": [ { "id": "", "flow": "", "email": "user@example.com" } ], "decryption": "none" },
+                "streamSettings": { "network": "tcp", "security": "reality", "realitySettings": { "dest": "", "xver": 0, "serverNames": [""], "privateKey": "", "shortIds": [""] } }
+            }],
+            "outbounds": [{"protocol": "freedom", "tag": "direct"}]
+        }'
+    else
+        echo "  ✅ Yedek siteden başarıyla indirildi."
+    fi
+else
+    echo "  ✅ GitHub'dan başarıyla indirildi."
+fi
+
+echo "ÖZEL AYARLAR indiriliyor..."
+echo "  1. Öncelik: GitHub ($GITHUB_SETTINGS_URL)"
+set +e  # Geçici olarak hata durumunda durdurmayı kapat
+JSON_SETTINGS=$(curl -sL --max-time $CURL_TIMEOUT "$GITHUB_SETTINGS_URL")
+CURL_EXIT2=$?
+set -e  # Tekrar aktifleştir
+
+# GitHub başarısız olursa yedek siteyi dene
+if [ $CURL_EXIT2 -ne 0 ] || [ -z "$JSON_SETTINGS" ]; then
+    echo "  ⚠️  GitHub indirme başarısız. Yedek site deneniyor: $BACKUP_SETTINGS_URL"
+    set +e
+    JSON_SETTINGS=$(curl -sL --max-time $CURL_TIMEOUT "$BACKUP_SETTINGS_URL")
+    CURL_EXIT2=$?
+    set -e
+
+    if [ $CURL_EXIT2 -ne 0 ] || [ -z "$JSON_SETTINGS" ]; then
+        echo "  ❌ Yedek site de başarısız. Varsayılan boş ayarlar kullanılıyor."
+        JSON_SETTINGS="{}"
+    else
+        echo "  ✅ Yedek siteden başarıyla indirildi."
+    fi
+else
+    echo "  ✅ GitHub'dan başarıyla indirildi."
+fi
+
+# jq kontrolü (JSON işlemleri için gerekli)
+echo "jq aracı kontrol ediliyor..."
+if ! command -v jq &> /dev/null; then
+    echo "UYARI: jq bulunamadı! jq zaten kurulmuş olmalıydı (line 24). Tekrar deneniyor..."
+    set +e
+    apt-get install -y jq
+    JQ_INSTALL_EXIT=$?
+    set -e
+    if [ $JQ_INSTALL_EXIT -ne 0 ]; then
+        echo "HATA: jq kurulamadı. Betik durduruluyor."
+        exit 1
+    fi
+fi
+echo "✅ jq kullanıma hazır."
+
+# JSON geçerliliğini kontrol et
+echo "İndirilen JSON dosyaları doğrulanıyor..."
+set +e  # JSON validation hataları için
+echo "$JSON_CONFIG" | jq empty 2>/dev/null
+JSON_CONFIG_VALID=$?
+set -e
+
+if [ $JSON_CONFIG_VALID -ne 0 ]; then
+    echo "HATA: config.json geçersiz JSON formatında! Varsayılan şablon kullanılıyor."
     JSON_CONFIG='{
         "inbounds": [{
             "listen": "0.0.0.0", "port": 443, "protocol": "vless",
@@ -44,18 +122,25 @@ if [ $? -ne 0 ] || [ -z "$JSON_CONFIG" ]; then
     }'
 fi
 
-echo "ÖZEL AYARLAR ($SETTINGS_URL) indiriliyor..."
-JSON_SETTINGS=$(curl -sL --max-time $CURL_TIMEOUT "$SETTINGS_URL")
+set +e
+echo "$JSON_SETTINGS" | jq empty 2>/dev/null
+JSON_SETTINGS_VALID=$?
+set -e
 
-if [ $? -ne 0 ] || [ -z "$JSON_SETTINGS" ]; then
-    echo "UYARI: Harici default.json (özel ayarlar) çekilemedi veya boş. Varsayılan değerler kullanılacak."
-    JSON_SETTINGS="{}" 
+if [ $JSON_SETTINGS_VALID -ne 0 ]; then
+    echo "UYARI: default.json geçersiz JSON formatında! Boş nesne kullanılıyor."
+    JSON_SETTINGS="{}"
 fi
+echo "✅ JSON dosyaları geçerli."
 
 # Ayarları Çekme
+echo "JSON ayarları ayrıştırılıyor..."
 name=$(echo "$JSON_SETTINGS" | jq -r '.name // "Reality_Vision_uTLS_VPN"')
 email=$(echo "$JSON_SETTINGS" | jq -r '.email // "user@example.com"')
 port_setting=$(echo "$JSON_SETTINGS" | jq -r '.port // "null"')
+echo "  - İsim: $name"
+echo "  - Email: $email"
+echo "  - Port ayarı: $port_setting"
 
 if [ "$port_setting" != "null" ] && [ ! -z "$port_setting" ]; then
     port=$port_setting
