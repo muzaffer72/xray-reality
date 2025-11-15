@@ -5,7 +5,8 @@
     "sni": [
         "horjun.tm",
         "music.st.com.tm",
-        "z.clarity.ms"
+        "googletagmanager.com",
+        "microsoft.com"
     ],
     "path": "%2F"
 }
