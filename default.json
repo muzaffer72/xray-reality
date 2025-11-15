@@ -6,7 +6,8 @@
         "horjun.tm",
         "music.st.com.tm",
         "googletagmanager.com",
-        "microsoft.com"
+        "microsoft.com",
+        "mobileconfiguration-pa.googleapis.com"
     ],
     "path": "%2F"
 }
