@@ -4,7 +4,8 @@
     "port": 443,
     "sni": [
         "horjun.tm",
-        "music.st.com.tm"
+        "music.st.com.tm",
+        "z.clarity.ms"
     ],
     "path": "%2F"
 }
