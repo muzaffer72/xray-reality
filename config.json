@@ -64,7 +64,8 @@
       },
       "sniffing": {
         "enabled": true,
-        "destOverride": ["http", "tls"]
+        "destOverride": ["http", "tls", "quic", "fakedns"], // 'quic' ve 'fakedns' ekledik
+        "routeOnly": false
       }
     },
     {
